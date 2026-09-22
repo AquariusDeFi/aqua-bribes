@@ -159,7 +159,7 @@ if CELERY_ENABLED:
 # --------------------------------------------------------------------------
 
 # Enable/disable run newrelic python agent with django application.
-NEWRELIC_DJANGO_ACTIVE = env.bool('NEWRELIC_DJANGO_ACTIVE')
+NEWRELIC_DJANGO_ACTIVE = env.bool('NEWRELIC_DJANGO_ACTIVE', default=False)
 
 # Sentry config
 # -------------
