@@ -55,3 +55,11 @@ skips schema setup and is noticeably faster.
   auto-starts the db service if it is not already up.
 - Tests write to `postgres://test:test@db/test` via `DATABASE_URL` injected by
   the compose file; no local Postgres needed.
+
+## Bribe ingestion cursor rollout
+
+Migration `bribes.0010_bribeingestioncursor` is schema-only. After it is
+applied, the first loader run for each collector account starts from the
+first page of the claimable balances currently returned by Horizon. Existing
+`Bribe.claimable_balance_id` uniqueness keeps accepted rows idempotent; the new
+cursor advances only after the complete page transaction succeeds.
