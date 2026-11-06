@@ -104,8 +104,6 @@ class BribesLoader(object):
         )
         if len(claimants) != 2:
             return None
-        if balance_created_at is None:
-            raise ValueError('Missing last_modified_time for a new bribe')
 
         amount = bribe['amount']
         sponsor = bribe['sponsor']

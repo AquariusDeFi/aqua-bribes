@@ -100,7 +100,6 @@ class BribesLoaderIngestionTests(TestCase):
     def test_invalid_last_modified_time_blocks_page_before_enrichment(self):
         invalid_timestamps = {
             'missing': object(),
-            'null': None,
             'non-string': 1721390400,
             'malformed': 'not-a-timestamp',
             'overflow': '999999999999999999999999999999999999-01-01T00:00:00Z',
@@ -229,6 +228,22 @@ class BribesLoaderIngestionTests(TestCase):
         self.assertEqual(cursor.paging_token, 'newer-durable-cursor')
         self.assertFalse(Bribe.objects.exists())
         self.assertFalse(MarketKey.objects.exists())
+
+    def test_new_bribe_with_null_history_time_is_saved_and_advances_cursor(self):
+        record = self._record('balance-new-null-time', '800')
+        record['last_modified_time'] = None
+        loader = self._loader()
+        loader._get_page = MagicMock(side_effect=[[record], []])
+
+        loader.load_bribes()
+
+        saved = Bribe.objects.get(claimable_balance_id=record['id'])
+        self.assertIsNone(saved.created_at)
+        self.assertEqual(saved.status, Bribe.STATUS_PENDING)
+        self.assertEqual(saved.start_at.isoformat(), '2026-08-03T00:00:00+00:00')
+        self.assertEqual(saved.stop_at.isoformat(), '2026-08-10T00:00:00+00:00')
+        self.assertEqual(BribeIngestionCursor.objects.get(account=COLLECTOR).paging_token, '800')
+        loader.logger.warning.assert_not_called()
 
     def test_known_balance_with_null_history_time_does_not_block_new_bribes(self):
         known = self._record('balance-known', '801')
