@@ -99,7 +99,13 @@ class BribesTests(TestCase):
 
     def setUp(self):
         self.server = Server(settings.HORIZON_URL)
-        self.bribe_wallet = bribe_wallet
+        self.bribe_wallet = Keypair.random()
+        wallet_settings = override_settings(
+            BRIBE_WALLET_ADDRESS=self.bribe_wallet.public_key,
+            BRIBE_WALLET_SIGNER=self.bribe_wallet.secret,
+        )
+        wallet_settings.enable()
+        self.addCleanup(wallet_settings.disable)
         self.account_1 = Keypair.random()
         self.default_market_key = Keypair.random()
         self.asset_xxx_issuer = Keypair.random()

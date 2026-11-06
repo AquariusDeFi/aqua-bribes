@@ -111,6 +111,11 @@ class MarketKey(models.Model):
         return memo.encode('ascii', 'ignore')[:MEMO_MAX_BYTES].decode('ascii')
 
 
+class BribeIngestionCursor(models.Model):
+    account = models.CharField(max_length=56, primary_key=True)
+    paging_token = models.CharField(max_length=255, blank=True, default='')
+
+
 class Bribe(models.Model):
     DEFAULT_DURATION = timedelta(days=7)
 
