@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "97cc2c62bc5fd944cdcd47f69a2c1ae7b1b7a74e8acb612217fefb918c646b31"
+            "sha256": "20deacbc3d6471972043b65cacf1abff42c896aec26c03c60e8499bafcdd770c"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -1930,12 +1930,12 @@
         },
         "stellar-sdk": {
             "hashes": [
-                "sha256:a8495dc99fd0c25484e57ad7cc6bceb0e5d708c2e74e20665b167a5974ad1609",
-                "sha256:c62c5b23e187ce44afa8154892287e5dc136b94048731ca32b4bea4817031b73"
+                "sha256:26066e64cd18aeea72cd7fd1ade73658066825e4d823dc652463a783ee394013",
+                "sha256:4d40daa8a6b88e1d6dcb7f4ed0df389a5e704a8e18ca9e0da6a800ed9a159240"
             ],
             "index": "pypi",
             "markers": "python_version >= '3.10' and python_version < '4.0'",
-            "version": "==15.0.0"
+            "version": "==17.0.0"
         },
         "swapper": {
             "hashes": [
