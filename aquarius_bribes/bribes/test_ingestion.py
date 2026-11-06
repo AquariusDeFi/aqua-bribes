@@ -100,7 +100,6 @@ class BribesLoaderIngestionTests(TestCase):
     def test_invalid_last_modified_time_blocks_page_before_enrichment(self):
         invalid_timestamps = {
             'missing': object(),
-            'null': None,
             'non-string': 1721390400,
             'malformed': 'not-a-timestamp',
             'overflow': '999999999999999999999999999999999999-01-01T00:00:00Z',
@@ -205,7 +204,7 @@ class BribesLoaderIngestionTests(TestCase):
         with patch.object(replay_loader, 'process_bribe', wraps=replay_loader.process_bribe) as process_bribe:
             replay_loader.load_bribes()
 
-        process_bribe.assert_called_once_with(record)
+        process_bribe.assert_not_called()
         self.assertEqual(Bribe.objects.filter(claimable_balance_id='balance-701').count(), 1)
         self.assertEqual(MarketKey.objects.filter(market_key=MARKET_KEY).count(), 1)
         self.assertEqual(BribeIngestionCursor.objects.get(account=COLLECTOR).paging_token, '701')
@@ -229,6 +228,86 @@ class BribesLoaderIngestionTests(TestCase):
         self.assertEqual(cursor.paging_token, 'newer-durable-cursor')
         self.assertFalse(Bribe.objects.exists())
         self.assertFalse(MarketKey.objects.exists())
+
+    def test_new_bribe_with_null_history_time_is_saved_and_advances_cursor(self):
+        record = self._record('balance-new-null-time', '800')
+        record['last_modified_time'] = None
+        loader = self._loader()
+        loader._get_page = MagicMock(side_effect=[[record], []])
+
+        loader.load_bribes()
+
+        saved = Bribe.objects.get(claimable_balance_id=record['id'])
+        self.assertIsNone(saved.created_at)
+        self.assertEqual(saved.status, Bribe.STATUS_PENDING)
+        self.assertEqual(saved.start_at.isoformat(), '2026-08-03T00:00:00+00:00')
+        self.assertEqual(saved.stop_at.isoformat(), '2026-08-10T00:00:00+00:00')
+        self.assertEqual(BribeIngestionCursor.objects.get(account=COLLECTOR).paging_token, '800')
+        loader.logger.warning.assert_not_called()
+
+    def test_known_balance_with_null_history_time_does_not_block_new_bribes(self):
+        known = self._record('balance-known', '801')
+        first = self._loader()
+        first._get_page = MagicMock(side_effect=[[known], []])
+        first.load_bribes()
+        saved = Bribe.objects.get(claimable_balance_id='balance-known')
+        BribeIngestionCursor.objects.all().delete()
+
+        known['last_modified_time'] = None
+        new = self._record('balance-new', '802')
+        loader = self._loader()
+        loader._get_page = MagicMock(side_effect=[[known, new], []])
+        loader.load_bribes()
+
+        self.assertEqual(Bribe.objects.count(), 2)
+        self.assertEqual(BribeIngestionCursor.objects.get(account=COLLECTOR).paging_token, '802')
+        self.assertEqual(Bribe.objects.get(pk=saved.pk).created_at, saved.created_at)
+        loader._get_asset_equivalent.assert_called_once()
+        loader.logger.warning.assert_not_called()
+
+    def test_skippable_balance_with_null_history_time_advances_cursor(self):
+        record = self._skippable_record('balance-old-non-bribe', '803')
+        record['last_modified_time'] = None
+        loader = self._loader()
+        loader._get_page = MagicMock(side_effect=[[record], []])
+
+        loader.load_bribes()
+
+        self.assertEqual(BribeIngestionCursor.objects.get(account=COLLECTOR).paging_token, '803')
+        self.assertFalse(Bribe.objects.exists())
+        loader._get_asset_equivalent.assert_not_called()
+        loader.logger.warning.assert_called_once()
+
+    def test_known_balance_still_requires_valid_transport_metadata(self):
+        record = self._record('balance-known-invalid-token', '804')
+        first = self._loader()
+        first._get_page = MagicMock(side_effect=[[record], []])
+        first.load_bribes()
+
+        record['paging_token'] = ''
+        loader = self._loader()
+        loader._get_page = MagicMock(side_effect=[[record], []])
+        with self.assertRaisesRegex(ValueError, 'paging_token'):
+            loader.load_bribes()
+
+        self.assertEqual(BribeIngestionCursor.objects.get(account=COLLECTOR).paging_token, '804')
+        loader._get_asset_equivalent.assert_not_called()
+
+    def test_known_balance_rejects_malformed_claimant_elements(self):
+        record = self._record('balance-known-invalid-claimants', '805')
+        first = self._loader()
+        first._get_page = MagicMock(side_effect=[[record], []])
+        first.load_bribes()
+
+        for claimants in ([None, None], [{}, {}]):
+            with self.subTest(claimants=claimants):
+                replay = dict(record, claimants=claimants, paging_token='806')  # noqa: S106
+                loader = self._loader()
+                loader._get_page = MagicMock(side_effect=[[replay], []])
+                with self.assertRaisesRegex(ValueError, 'claimants'):
+                    loader.load_bribes()
+
+                self.assertEqual(BribeIngestionCursor.objects.get(account=COLLECTOR).paging_token, '805')
 
     def test_stale_worker_does_not_log_skipped_record(self):
         loader = self._loader()
