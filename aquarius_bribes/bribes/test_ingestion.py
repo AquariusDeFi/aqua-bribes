@@ -27,7 +27,7 @@ class BribesLoaderIngestionTests(TestCase):
     def _loader(self):
         loader = BribesLoader(COLLECTOR, 'unused signer')
         loader._get_asset_equivalent = MagicMock(return_value='1.0000000')
-        loader.logger.warning = MagicMock()
+        loader.logger = MagicMock()
         return loader
 
     def _record(self, record_id, paging_token):

@@ -63,3 +63,13 @@ applied, the first loader run for each collector account starts from the
 first page of the claimable balances currently returned by Horizon. Existing
 `Bribe.claimable_balance_id` uniqueness keeps accepted rows idempotent; the new
 cursor advances only after the complete page transaction succeeds.
+
+Migration `bribes.0011_merge_ingestion_cursor_and_soroban_labels` joins the
+cursor migration with `0010_soroban_token_labels` from master. It has no
+database operations and preserves both existing migration names, including
+for databases that already applied either branch.
+
+Before rollout, confirm the affected environment using the deployed release,
+host and deployment inventory. Apply migrations before starting the updated
+loader. Verify forward cursor progress, continued ingestion of new valid
+bribes, and that repeated warnings for the same skipped balances stop.

@@ -75,6 +75,8 @@ STELLAR_PASSPHRASE = 'Test SDF Network ; September 2015'
 HORIZON_URL = 'https://horizon-testnet.stellar.org'
 SOROBAN_RPC_URL = 'https://soroban-testnet.stellar.org'
 
+MARKETKEYS_TRACKER_URL = env('MARKETKEYS_TRACKER_URL', default='https://marketkeys-tracker-testnet.aqua.network')
+
 
 # Bribe configuration
 # --------------------------------------------------------------------------

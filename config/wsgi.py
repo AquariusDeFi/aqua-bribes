@@ -8,27 +8,23 @@ https://docs.djangoproject.com/en/2.2/howto/deployment/wsgi/
 """
 
 import os
+from pathlib import Path
 
-import newrelic.agent
-from newrelic.api.exceptions import ConfigurationError
+import environ
 
-try:
-    newrelic.agent.initialize(os.path.join(os.path.dirname(__file__), '..', 'conf', 'newrelic.ini'))
-except ConfigurationError:
-    newrelic_initialized = False
-else:
-    newrelic_initialized = True
+from config.newrelic import initialize_new_relic
 
+newrelic_active = environ.Env().bool('NEWRELIC_DJANGO_ACTIVE', default=False)
+newrelic_config = Path(__file__).resolve().parent.parent / 'conf' / 'newrelic.ini'
+newrelic_agent = initialize_new_relic(
+    newrelic_active,
+    newrelic_config,
+    environ=os.environ,
+)
 
 from django.core.wsgi import get_wsgi_application  # noqa I001
 
 application = get_wsgi_application()
 
-# don't move it before newrelic agent initialization because modules loaded before initialize will be uninstrumented
-from django.conf import settings  # noqa E402, I001
-
-if settings.NEWRELIC_DJANGO_ACTIVE:
-    if not newrelic_initialized:
-        raise ConfigurationError()
-
-    application = newrelic.agent.WSGIApplicationWrapper(application)
+if newrelic_agent is not None:
+    application = newrelic_agent.WSGIApplicationWrapper(application)
