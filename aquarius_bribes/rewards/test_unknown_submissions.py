@@ -98,6 +98,19 @@ class UnknownSubmissionTests(TestCase):
         self.horizon.submit_transaction.side_effect = submit_with_server_error
         self.assert_unknown_lookup_does_not_repay(response={})
 
+    def test_malformed_submit_and_404_do_not_repay(self):
+        self.horizon.submit_transaction.side_effect = self.submit_with_malformed_response
+        error = NotFoundError(Response(404, '', {}, 'https://offline.invalid/transactions/hash'))
+        self.assert_unknown_lookup_does_not_repay(error=error)
+
+    def test_malformed_submit_and_incomplete_lookup_do_not_repay(self):
+        self.horizon.submit_transaction.side_effect = self.submit_with_malformed_response
+        self.assert_unknown_lookup_does_not_repay(response={})
+
+    def submit_with_malformed_response(self, envelope):
+        self.submitted_hashes.append(envelope.hash_hex())
+        return {}
+
     def test_confirmed_failed_transaction_can_be_retried(self):
         self.payer().pay_reward(self.votes, total_votes=Decimal('100'))
         self.horizon.transactions.return_value.transaction.return_value.call.return_value = {'successful': False}
