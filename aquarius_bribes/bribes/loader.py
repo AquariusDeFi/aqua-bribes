@@ -67,6 +67,14 @@ class BribesLoader(object):
         claimants = bribe.get('claimants')
         if not isinstance(claimants, list):
             raise ValueError('Invalid claimable balance claimants')
+        for claimant in claimants:
+            if (
+                not isinstance(claimant, dict)
+                or not isinstance(claimant.get('destination'), str)
+                or not claimant['destination']
+                or not isinstance(claimant.get('predicate'), dict)
+            ):
+                raise ValueError('Invalid claimable balance claimants')
 
         claimable_balance_id = bribe.get('id')
         if not isinstance(claimable_balance_id, str) or not claimable_balance_id:
@@ -76,13 +84,17 @@ class BribesLoader(object):
         if not isinstance(paging_token, str) or not paging_token:
             raise ValueError('Invalid claimable balance paging_token')
 
-        balance_created_at = bribe.get('last_modified_time')
-        if not isinstance(balance_created_at, str) or not balance_created_at:
+        if 'last_modified_time' not in bribe:
             raise ValueError('Invalid claimable balance last_modified_time')
-        try:
-            balance_created_at = date_parse(balance_created_at)
-        except (OverflowError, TypeError, ValueError) as exc:
-            raise ValueError('Invalid claimable balance last_modified_time') from exc
+        balance_created_at = bribe['last_modified_time']
+        # Horizon can return null when the referenced ledger history is absent.
+        if balance_created_at is not None:
+            if not isinstance(balance_created_at, str) or not balance_created_at:
+                raise ValueError('Invalid claimable balance last_modified_time')
+            try:
+                balance_created_at = date_parse(balance_created_at)
+            except (OverflowError, TypeError, ValueError) as exc:
+                raise ValueError('Invalid claimable balance last_modified_time') from exc
 
         return claimants, claimable_balance_id, paging_token, balance_created_at
 
@@ -92,6 +104,8 @@ class BribesLoader(object):
         )
         if len(claimants) != 2:
             return None
+        if balance_created_at is None:
+            raise ValueError('Missing last_modified_time for a new bribe')
 
         amount = bribe['amount']
         sponsor = bribe['sponsor']
@@ -194,7 +208,13 @@ class BribesLoader(object):
         while bribes:
             parsed_bribes = []
             skipped_bribes = []
+            existing_ids = set(Bribe.objects.filter(
+                claimable_balance_id__in=[bribe.get('id') for bribe in bribes],
+            ).values_list('claimable_balance_id', flat=True))
             for bribe in bribes:
+                if bribe.get('id') in existing_ids:
+                    self._parse_transport_metadata(bribe)
+                    continue
                 bribe_instance = self.process_bribe(bribe)
                 if bribe_instance:
                     parsed_bribes.append(bribe_instance)
