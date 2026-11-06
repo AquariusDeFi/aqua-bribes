@@ -2241,10 +2241,9 @@ class RewardPayerResilienceTests(TestCase):
         for c in calls[1:]:
             self.assertIs(c, first_cache)
 
-    def test_unknown_response_failed_payouts_remain_retryable(self):
-        # X6: a failed Payout with message='unknown_response_no_successful_field'
-        # must be included in the retryable set — the next _clean_rewards call
-        # must NOT exclude it, so task_pay_rewards will retry on the next run.
+    def test_unknown_response_failed_payouts_remain_held(self):
+        # A missing confirmation must not expose a submitted vote to another
+        # payment. Reconciliation must establish the outcome first.
         market = self._make_market()
         bribe = self._make_bribe(market, asset_code=Asset.native().code, asset_issuer="")
         snapshot_date = timezone.now().date()
@@ -2265,8 +2264,7 @@ class RewardPayerResilienceTests(TestCase):
         remaining = payer._clean_rewards(
             VoteSnapshot.objects.filter(market_key=market, snapshot_time=snapshot_date)
         )
-        # Vote must still be in the eligible set (retryable, not permanently excluded).
-        self.assertIn(vote, list(remaining))
+        self.assertNotIn(vote, list(remaining))
 
     def test_clean_failed_payouts_rechecks_unknown_response_under_5_minutes(self):
         # X1 (2026-04-24 audit): bypass the 5-min timeout grace for

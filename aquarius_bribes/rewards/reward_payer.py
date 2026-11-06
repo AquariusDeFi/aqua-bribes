@@ -127,12 +127,9 @@ class BaseRewardPayer(object):
                     payout.status = self.payout_class.STATUS_FAILED
                     payout.message = 'unknown_response_no_successful_field'
                 self.payout_class.objects.bulk_create(payouts)
-                # In-run skip: the response lacked 'successful: true'. That is
-                # retryable across runs (next hourly run re-checks the hash
-                # via _clean_failed_payouts), but must NOT be retried inside
-                # the current pay_reward while-loop — otherwise the same page
-                # is re-enqueued every iteration until stop_at (or forever
-                # when stop_at is None, as in tests).
+                # Keep this page held until a later hash lookup establishes
+                # its outcome. The in-run skip also protects other subclasses
+                # from re-enqueuing it in the current pay_reward loop.
                 self._build_failure_vote_ids.update(
                     p.vote_snapshot_id for p in payouts
                 )
@@ -153,7 +150,7 @@ class BaseRewardPayer(object):
                 payout.message = 'timeout'
             self.payout_class.objects.bulk_create(payouts)
         except BaseHorizonError as submit_exc:
-            if getattr(submit_exc, 'status', None) in [504, 522]:
+            if getattr(submit_exc, 'status', None) in range(500, 600):
                 for payout in payouts:
                     payout.stellar_transaction_id = transaction_envelope.hash_hex()
                     payout.status = self.payout_class.STATUS_FAILED
@@ -179,14 +176,9 @@ class BaseRewardPayer(object):
                             'transaction', 'timeout',
                         )
                     else:
-                        # Horizon returned a non-JSON error body (e.g. 500 HTML
-                        # page). We have no response body — the tx may or may
-                        # not have reached Horizon at all. Treat as `timeout`
-                        # so `_clean_failed_payouts` keeps the 5-min grace
-                        # before re-checking: without the grace, a transient
-                        # NotFoundError on the very next run would delete the
-                        # row and let a fresh submit double-pay when the
-                        # original tx eventually propagates.
+                        # No reliable result codes: keep the hash for delayed
+                        # reconciliation. A missing lookup remains unknown even
+                        # after the timeout grace period.
                         operation_fail_reasons = 'timeout'
 
                     operation_fail_reasons = [operation_fail_reasons] * len(payouts)
@@ -217,10 +209,8 @@ class BaseRewardPayer(object):
             # runs. Capture to Sentry for observability and persist with the
             # envelope hash + `timeout` so `_clean_failed_payouts` keeps the
             # 5-min grace before re-checking the hash on Horizon. Using the
-            # `timeout` message (instead of `unknown_response_no_successful_field`)
-            # is critical: without the grace, a transient NotFoundError on
-            # the very next run would delete the row and let a fresh submit
-            # double-pay when the original tx eventually propagates.
+            # The timeout marker preserves the hash and delayed reconciliation;
+            # a missing or unavailable lookup must not authorize another payment.
             logger.exception(
                 'Unexpected error submitting payout transaction',
                 extra={'bribe_id': getattr(self.bribe, 'id', None)},
@@ -233,33 +223,19 @@ class BaseRewardPayer(object):
             self.payout_class.objects.bulk_create(payouts)
 
     def _clean_failed_payouts(self, rewards):
-        # Any FAILED Payout whose stellar_transaction_id was set from an
-        # actual submit attempt (timeout or unverified-response) must have
-        # its hash re-checked on Horizon before the row is allowed to be
-        # retried. Without this check, making 'unknown_response_no_successful_field'
-        # retryable in _clean_rewards would double-pay voters when Horizon
-        # landed the tx but returned a malformed response.
+        # Reconcile every failed attempt carrying a submitted hash before
+        # another payment is allowed. Unavailable results remain unknown.
         #
-        # `timeout` keeps a 5-min grace period so the next run doesn't
-        # race Horizon's own indexing lag (a submit can return
-        # SoftTimeLimitExceeded mid-flight while the tx is still landing).
-        # `unknown_response_no_successful_field` has no such lag — the
-        # response body was received, we just can't tell if the tx landed.
-        # Gating it behind the 5-min window would let an operator's manual
-        # re-run during incident response re-enqueue and double-pay the
-        # voter before the re-check ever fires. Always re-verify.
+        # Timeout attempts wait five minutes before the first lookup to avoid
+        # rapid checks during indexing lag. Unverified responses are checked on
+        # the next run without that delay.
+        # Neither elapsed time nor a missing lookup proves that a payment failed.
         timeout_cutoff = (
             timezone.now()
             - timedelta(minutes=self.time_before_check_timeouted_transactions)
         )
-        # STATUS_FAILED guard is load-bearing: once a previous run upgraded
-        # a row FAILED→SUCCESS but left the message intact (`'timeout'` /
-        # `'unknown_response_no_successful_field'`), every subsequent run
-        # would otherwise re-check the same hash. A transient NotFoundError
-        # would then delete the SUCCESS row on the `.delete()` branches
-        # below, re-enqueue the voter via `_clean_rewards`, and double-pay
-        # on the next submit when the original tx lands later. Same status
-        # filter on the update/delete operations below for defense in depth.
+        # Reconcile only unresolved failures. Keep the status guard on writes
+        # too, so a later lookup cannot change a previously confirmed payout.
         uncertain_transactions = rewards.filter(
             payout__status=self.payout_class.STATUS_FAILED,
             payout__stellar_transaction_id__gt='',
@@ -277,7 +253,7 @@ class BaseRewardPayer(object):
             try:
                 tx_data = self.server.transactions().transaction(tx_hash).call()
 
-                if tx_data.get('successful', False):
+                if tx_data.get('successful') is True:
                     self.payout_class.objects.filter(
                         stellar_transaction_id=tx_hash,
                         status=self.payout_class.STATUS_FAILED,
@@ -285,16 +261,14 @@ class BaseRewardPayer(object):
                         status=self.payout_class.STATUS_SUCCESS,
                         message='reverified_after_timeout',
                     )
-                else:
+                elif tx_data.get('successful') is False:
                     self.payout_class.objects.filter(
                         stellar_transaction_id=tx_hash,
                         status=self.payout_class.STATUS_FAILED,
                     ).delete()
             except NotFoundError:
-                self.payout_class.objects.filter(
-                    stellar_transaction_id=tx_hash,
-                    status=self.payout_class.STATUS_FAILED,
-                ).delete()
+                # A missing Horizon result does not prove the payment failed.
+                continue
 
     def _exclude_small_votes(self, votes, total_votes):
         min_votes_value = Decimal(Decimal("0.0000001") * total_votes / self.reward_amount).quantize(
@@ -328,11 +302,10 @@ class RewardPayer(BaseRewardPayer):
 
         # build_failure: transient error during envelope construction (Horizon timeout,
         # account load flake, etc.). Must stay retryable so the next hourly run can recover.
-        # unknown_response_no_successful_field: also retryable — covers transient Horizon
-        # responses that lacked `successful: true` (e.g., HTML error page or upstream bug).
+        # Unknown submit responses stay held until reconciliation establishes
+        # success or deletes the failed attempt after a confirmed failure.
         retryable_failure = models.Q(message__in=[
             'tx_bad_auth', 'tx_bad_seq', 'tx_insufficient_balance', 'tx_insufficient_fee',
-            'unknown_response_no_successful_field',
         ]) | models.Q(message__startswith='build_failure:')
         failed_by_unkown_reason = self.payout_class.objects.filter(
             bribe=self.bribe, vote_snapshot__in=qs,
