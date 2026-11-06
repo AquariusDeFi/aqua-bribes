@@ -201,6 +201,8 @@ HORIZON_URL = NotImplemented
 SOROBAN_RPC_URL = NotImplemented
 BASE_FEE = 10 ** 5 * 2
 
+MARKETKEYS_TRACKER_URL = NotImplemented
+
 
 # Bribe configuration
 # --------------------------------------------------------------------------

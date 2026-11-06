@@ -3,15 +3,15 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
 import requests
 from constance import config
-from stellar_sdk import Account, Asset, Claimant, ClaimPredicate, Keypair, Server, TransactionBuilder
+from stellar_sdk import Account, Asset, Claimant, ClaimPredicate, Keypair, Server, TextMemo, TransactionBuilder
 
 from aquarius_bribes.bribes.loader import BribesLoader
-from aquarius_bribes.bribes.models import AggregatedByAssetBribe, Bribe
+from aquarius_bribes.bribes.models import AggregatedByAssetBribe, Bribe, MarketKey
 from aquarius_bribes.bribes.tasks import task_aggregate_bribes, task_claim_bribes, task_return_bribes
 
 random_asset_issuer = Keypair.random()
@@ -514,3 +514,69 @@ class BribesTests(TestCase):
             task_claim_bribes()
 
         self.assertEqual(Bribe.objects.first().status, Bribe.STATUS_PENDING)
+
+
+class PayoutMemoTests(SimpleTestCase):
+    """Payout memos must always be buildable: token `symbol()` is attacker-chosen."""
+
+    CONTRACT = 'CCYPRFTJIIOLQUSQUPQKQJ36PELTK662G5NYAMUOFM6JM7HFOGL2WYQX'
+    AQUA = 'AQUA:GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER'
+
+    def _market_key(self, raw_asset1, raw_asset2, label1='', label2=''):
+        # The memo is derived from fields only — no database round trip needed.
+        return MarketKey(
+            market_key=Keypair.random().public_key,
+            raw_asset1=raw_asset1,
+            raw_asset2=raw_asset2,
+            asset1_label=label1,
+            asset2_label=label2,
+        )
+
+    def assert_memo_valid(self, market_key) -> str:
+        memo = market_key.payout_memo
+        # The SDK enforces the 28-byte limit; this is the check that used to fail.
+        self.assertEqual(TextMemo(memo).memo_text.decode(), memo)
+        self.assertLessEqual(len(memo.encode()), 28)
+        return memo
+
+    def test_multibyte_symbol_does_not_break_the_memo(self):
+        """Eight emoji are 32 bytes: truncating by characters made this unbuildable."""
+        market_key = self._market_key(self.CONTRACT, self.AQUA, label1='🚀' * 8)
+
+        self.assertEqual(self.assert_memo_valid(market_key), 'Bribe: CCYP/AQUA')
+
+    def test_long_symbol_is_truncated_to_the_label_slot(self):
+        market_key = self._market_key(self.CONTRACT, self.AQUA, label1='VeryLongTokenSymbol')
+
+        self.assertEqual(self.assert_memo_valid(market_key), 'Bribe: VeryLong/AQUA')
+
+    def test_resolved_symbol_is_used_as_is(self):
+        market_key = self._market_key(self.CONTRACT, self.AQUA, label1='SOR18Exp')
+
+        self.assertEqual(self.assert_memo_valid(market_key), 'Bribe: SOR18Exp/AQUA')
+
+    def test_unresolved_symbol_falls_back_to_the_contract_prefix(self):
+        market_key = self._market_key(self.CONTRACT, self.AQUA)
+
+        self.assertEqual(self.assert_memo_valid(market_key), 'Bribe: CCYP/AQUA')
+
+    def test_two_soroban_tokens_fit_the_budget(self):
+        market_key = self._market_key(
+            self.CONTRACT,
+            'CC52SIPHNMTBMHSBYTUI3R53PPMBGTEOJ566GFMSREBFA3KVJ4MY7OBT',
+            label1='SOR18Exp',
+            label2='yTIMEyTIMEyTIME',
+        )
+
+        self.assertEqual(self.assert_memo_valid(market_key), 'Bribe: SOR18Exp/yTIMEyTI')
+
+    def test_classic_pair_memo_is_unchanged(self):
+        market_key = self._market_key('native', self.AQUA)
+
+        self.assertEqual(self.assert_memo_valid(market_key), 'Bribe: XLM/AQUA')
+
+    def test_market_without_resolved_assets_falls_back_to_the_account_id(self):
+        market_key = self._market_key('', '')
+
+        memo = self.assert_memo_valid(market_key)
+        self.assertTrue(memo.startswith('Bribe: {}...'.format(market_key.market_key[:4])))

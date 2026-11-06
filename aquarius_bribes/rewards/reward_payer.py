@@ -349,7 +349,7 @@ class RewardPayer(BaseRewardPayer):
         return qs
 
     def _get_memo(self):
-        return 'Bribe: {}'.format(self.bribe.market_key.short_value)
+        return self.bribe.market_key.payout_memo
 
     def _get_payout_instance(self, vote, total_votes):
         reward_amount = (self.reward_amount * vote.votes_value / total_votes)

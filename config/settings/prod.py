@@ -159,7 +159,7 @@ if CELERY_ENABLED:
 # --------------------------------------------------------------------------
 
 # Enable/disable run newrelic python agent with django application.
-NEWRELIC_DJANGO_ACTIVE = env.bool('NEWRELIC_DJANGO_ACTIVE')
+NEWRELIC_DJANGO_ACTIVE = env.bool('NEWRELIC_DJANGO_ACTIVE', default=False)
 
 # Sentry config
 # -------------
@@ -181,6 +181,8 @@ if SENTRY_ENABLED:
 STELLAR_PASSPHRASE = 'Public Global Stellar Network ; September 2015'
 HORIZON_URL = env('HORIZON_URL', default='https://horizon.stellar.org')
 SOROBAN_RPC_URL = env('SOROBAN_RPC_URL', default='https://mainnet.sorobanrpc.com')
+
+MARKETKEYS_TRACKER_URL = env('MARKETKEYS_TRACKER_URL', default='https://marketkeys-tracker.aqua.network')
 
 # Bribe configuration
 # --------------------------------------------------------------------------
