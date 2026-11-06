@@ -153,7 +153,7 @@ class BaseRewardPayer(object):
                 payout.message = 'timeout'
             self.payout_class.objects.bulk_create(payouts)
         except BaseHorizonError as submit_exc:
-            if getattr(submit_exc, 'status', None) in [504, 522]:
+            if getattr(submit_exc, 'status', None) in range(500, 600):
                 for payout in payouts:
                     payout.stellar_transaction_id = transaction_envelope.hash_hex()
                     payout.status = self.payout_class.STATUS_FAILED
@@ -179,14 +179,9 @@ class BaseRewardPayer(object):
                             'transaction', 'timeout',
                         )
                     else:
-                        # Horizon returned a non-JSON error body (e.g. 500 HTML
-                        # page). We have no response body — the tx may or may
-                        # not have reached Horizon at all. Treat as `timeout`
-                        # so `_clean_failed_payouts` keeps the 5-min grace
-                        # before re-checking: without the grace, a transient
-                        # NotFoundError on the very next run would delete the
-                        # row and let a fresh submit double-pay when the
-                        # original tx eventually propagates.
+                        # No reliable result codes: keep the hash for delayed
+                        # reconciliation. A missing lookup remains unknown even
+                        # after the timeout grace period.
                         operation_fail_reasons = 'timeout'
 
                     operation_fail_reasons = [operation_fail_reasons] * len(payouts)
@@ -217,10 +212,8 @@ class BaseRewardPayer(object):
             # runs. Capture to Sentry for observability and persist with the
             # envelope hash + `timeout` so `_clean_failed_payouts` keeps the
             # 5-min grace before re-checking the hash on Horizon. Using the
-            # `timeout` message (instead of `unknown_response_no_successful_field`)
-            # is critical: without the grace, a transient NotFoundError on
-            # the very next run would delete the row and let a fresh submit
-            # double-pay when the original tx eventually propagates.
+            # The timeout marker preserves the hash and delayed reconciliation;
+            # a missing or unavailable lookup must not authorize another payment.
             logger.exception(
                 'Unexpected error submitting payout transaction',
                 extra={'bribe_id': getattr(self.bribe, 'id', None)},
@@ -240,26 +233,16 @@ class BaseRewardPayer(object):
         # retryable in _clean_rewards would double-pay voters when Horizon
         # landed the tx but returned a malformed response.
         #
-        # `timeout` keeps a 5-min grace period so the next run doesn't
-        # race Horizon's own indexing lag (a submit can return
-        # SoftTimeLimitExceeded mid-flight while the tx is still landing).
-        # `unknown_response_no_successful_field` has no such lag — the
-        # response body was received, we just can't tell if the tx landed.
-        # Gating it behind the 5-min window would let an operator's manual
-        # re-run during incident response re-enqueue and double-pay the
-        # voter before the re-check ever fires. Always re-verify.
+        # Timeout attempts wait five minutes before the first lookup to avoid
+        # rapid checks during indexing lag. Unverified responses are checked on
+        # the next run because their marker is otherwise eligible for retry.
+        # Neither elapsed time nor a missing lookup proves that a payment failed.
         timeout_cutoff = (
             timezone.now()
             - timedelta(minutes=self.time_before_check_timeouted_transactions)
         )
-        # STATUS_FAILED guard is load-bearing: once a previous run upgraded
-        # a row FAILED→SUCCESS but left the message intact (`'timeout'` /
-        # `'unknown_response_no_successful_field'`), every subsequent run
-        # would otherwise re-check the same hash. A transient NotFoundError
-        # would then delete the SUCCESS row on the `.delete()` branches
-        # below, re-enqueue the voter via `_clean_rewards`, and double-pay
-        # on the next submit when the original tx lands later. Same status
-        # filter on the update/delete operations below for defense in depth.
+        # Reconcile only unresolved failures. Keep the status guard on writes
+        # too, so a later lookup cannot change a previously confirmed payout.
         uncertain_transactions = rewards.filter(
             payout__status=self.payout_class.STATUS_FAILED,
             payout__stellar_transaction_id__gt='',
@@ -277,7 +260,7 @@ class BaseRewardPayer(object):
             try:
                 tx_data = self.server.transactions().transaction(tx_hash).call()
 
-                if tx_data.get('successful', False):
+                if tx_data.get('successful') is True:
                     self.payout_class.objects.filter(
                         stellar_transaction_id=tx_hash,
                         status=self.payout_class.STATUS_FAILED,
@@ -285,16 +268,14 @@ class BaseRewardPayer(object):
                         status=self.payout_class.STATUS_SUCCESS,
                         message='reverified_after_timeout',
                     )
-                else:
+                elif tx_data.get('successful') is False:
                     self.payout_class.objects.filter(
                         stellar_transaction_id=tx_hash,
                         status=self.payout_class.STATUS_FAILED,
                     ).delete()
             except NotFoundError:
-                self.payout_class.objects.filter(
-                    stellar_transaction_id=tx_hash,
-                    status=self.payout_class.STATUS_FAILED,
-                ).delete()
+                # A missing Horizon result does not prove the payment failed.
+                continue
 
     def _exclude_small_votes(self, votes, total_votes):
         min_votes_value = Decimal(Decimal("0.0000001") * total_votes / self.reward_amount).quantize(
