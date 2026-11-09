@@ -6,14 +6,14 @@
 [![Forks][forks-shield]][forks-url]
 [![Stargazers][stars-shield]][stars-url]
 [![Issues][issues-shield]][issues-url]
-[![MIT License][license-shield]][license-url]
+[![License][license-shield]][license-url]
 
 
 
 <!-- PROJECT LOGO -->
 <br />
 <div align="center">
-  <a href="https://github.com/AquaToken/aqua-bribes">
+  <a href="https://github.com/AquariusDeFi/aqua-bribes">
     <img src="https://aqua.network/assets/img/header-logo.svg" alt="Logo" width="250" height="80">
   </a>
 
@@ -23,7 +23,7 @@
     Aquarius protocol is governed by DAO voting with AQUA tokens. Vote and participate in discussions to shape the future of Aquarius.
     <br />
     <br />
-    <a href="https://github.com/AquaToken/aqua-bribes/issues">Report Bug</a>
+    <a href="https://github.com/AquariusDeFi/aqua-bribes/issues">Report Bug</a>
     ·
     <a href="https://vote.aqua.network/">Request Feature</a>
   </p>
@@ -46,6 +46,7 @@
       <ul>
         <li><a href="#prerequisites">Prerequisites</a></li>
         <li><a href="#development-server">Development server</a></li>
+        <li><a href="#running-tests">Running tests</a></li>
       </ul>
     </li>
     <li><a href="#contributing">Contributing</a></li>
@@ -101,13 +102,15 @@ Multiple tokens can get assigned as bribes for a market. Since bribes get delive
 ## Getting Started
 
 ### Prerequisites
-Project is using postgresql as a database, so it's the only requirement.
+* Python 3.11 and [pipenv](https://pipenv.pypa.io/)
+* PostgreSQL
+* A message broker for Celery: RabbitMQ by default, override it with `CELERY_BROKER_URL`
 
 ### Development server
 Project built using django framework, so setup is similar to generic django project.
 
 #### Clone project
-`git clone git@github.com:AquaToken/aqua-bribes.git`
+`git clone git@github.com:AquariusDeFi/aqua-bribes.git`
 
 #### Create environment & install requirements
 `pipenv sync --dev`
@@ -134,6 +137,9 @@ echo 'export DATABASE_URL="postgres://username:password@localhost/aquarius_bribe
 
 #### Done
 That's it. Admin panel as well as api will be available at 8000 port: `http://localhost:8000/admin/login/`
+
+### Running tests
+See [TESTING.md](TESTING.md) for the Docker-based test and lint commands.
 
 
 <p align="right">(<a href="#top">back to top</a>)</p>
@@ -164,12 +170,12 @@ Email: [hello@aqua.network](mailto:hello@aqua.network)
 Telegram chat: [@aquarius_HOME](https://t.me/aquarius_HOME)
 Telegram news: [@aqua_token](https://t.me/aqua_token)
 Twitter: [@aqua_token](https://twitter.com/aqua_token)
-GitHub: [@AquaToken](https://github.com/AquaToken)
+GitHub: [@AquariusDeFi](https://github.com/AquariusDeFi)
 Discord: [@Aquarius](https://discord.gg/sgzFscHp4C)
 Reddit: [@AquariusAqua](https://www.reddit.com/r/AquariusAqua/)
 Medium: [@aquarius-aqua](https://medium.com/aquarius-aqua)
 
-Project Link: [https://github.com/AquaToken/aqua-bribes](https://github.com/AquaToken/aqua-bribes)
+Project Link: [https://github.com/AquariusDeFi/aqua-bribes](https://github.com/AquariusDeFi/aqua-bribes)
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
@@ -177,14 +183,14 @@ Project Link: [https://github.com/AquaToken/aqua-bribes](https://github.com/Aqua
 
 <!-- MARKDOWN LINKS & IMAGES -->
 <!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
-[contributors-shield]: https://img.shields.io/github/contributors/AquaToken/aqua-bribes.svg?style=for-the-badge
-[contributors-url]: https://github.com/AquaToken/aqua-bribes/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/AquaToken/aqua-bribes.svg?style=for-the-badge
-[forks-url]: https://github.com/AquaToken/aqua-bribes/network/members
-[stars-shield]: https://img.shields.io/github/stars/AquaToken/aqua-bribes.svg?style=for-the-badge
-[stars-url]: https://github.com/AquaToken/aqua-bribes/stargazers
-[issues-shield]: https://img.shields.io/github/issues/AquaToken/aqua-bribes.svg?style=for-the-badge
-[issues-url]: https://github.com/AquaToken/aqua-bribes/issues
-[license-shield]: https://img.shields.io/github/license/AquaToken/aqua-bribes.svg?style=for-the-badge
-[license-url]: https://github.com/AquaToken/aqua-bribes/blob/master/LICENSE.txt
+[contributors-shield]: https://img.shields.io/github/contributors/AquariusDeFi/aqua-bribes.svg?style=for-the-badge
+[contributors-url]: https://github.com/AquariusDeFi/aqua-bribes/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/AquariusDeFi/aqua-bribes.svg?style=for-the-badge
+[forks-url]: https://github.com/AquariusDeFi/aqua-bribes/network/members
+[stars-shield]: https://img.shields.io/github/stars/AquariusDeFi/aqua-bribes.svg?style=for-the-badge
+[stars-url]: https://github.com/AquariusDeFi/aqua-bribes/stargazers
+[issues-shield]: https://img.shields.io/github/issues/AquariusDeFi/aqua-bribes.svg?style=for-the-badge
+[issues-url]: https://github.com/AquariusDeFi/aqua-bribes/issues
+[license-shield]: https://img.shields.io/github/license/AquariusDeFi/aqua-bribes.svg?style=for-the-badge
+[license-url]: https://github.com/AquariusDeFi/aqua-bribes/blob/master/LICENSE
 [product-screenshot]: images/screenshot.png
