@@ -6,14 +6,16 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.utils import timezone
 
 from stellar_sdk import Asset
 
 from aquarius_bribes.bribes.models import AggregatedByAssetBribe
 from aquarius_bribes.rewards.claim_loader import ClaimLoader
+from aquarius_bribes.rewards.contract_delegation import source_snapshot, validate_source
 from aquarius_bribes.rewards.eligibility import get_payable_votes
-from aquarius_bribes.rewards.models import ClaimableBalance
+from aquarius_bribes.rewards.models import ClaimableBalance, ContractDelegationSnapshot, VoteSnapshot
 from aquarius_bribes.rewards.reward_payer import RewardPayer
 from aquarius_bribes.rewards.trustees_loader import TrusteesLoader
 from aquarius_bribes.rewards.utils import SecuredWallet
@@ -65,22 +67,40 @@ def task_run_load_votes():
 @celery_app.task(ignore_result=True, soft_time_limit=60 * 60 * 1, time_limit=60 * (60 * 1 + 5))
 def task_load_votes(snapshot_time=None):
     cache.set(LOAD_VOTES_TASK_ACTIVE_KEY, True, LOAD_VOTES_TASK_TTL)
-
-    if snapshot_time is None:
-        snapshot_time = timezone.now()
-        snapshot_time = snapshot_time.replace(minute=0, second=0, microsecond=0)
-
-    task_make_claims_snapshot()
-
-    markets_with_active_bribes = AggregatedByAssetBribe.objects.filter(
-        start_at__lte=snapshot_time, stop_at__gt=snapshot_time,
-    ).values_list('market_key', flat=True).distinct()
-
-    for market_key in markets_with_active_bribes:
-        loader = VotesLoader(market_key, snapshot_time)
-        loader.load_votes()
-
-    cache.set(LOAD_VOTES_TASK_ACTIVE_KEY, False, None)
+    try:
+        if getattr(settings, 'CONTRACT_DELEGATION_SNAPSHOTS_ENABLED', False):
+            now = snapshot_time or timezone.now()
+            if not AggregatedByAssetBribe.objects.filter(start_at__lte=now, stop_at__gt=now).exists():
+                return
+            source = source_snapshot(snapshot_time)
+            at = validate_source(source.source_id, source.payload)
+            markets = sorted(AggregatedByAssetBribe.objects.filter(
+                start_at__lte=at, stop_at__gt=at,
+            ).values_list('market_key', flat=True).distinct())
+            with transaction.atomic():
+                source = ContractDelegationSnapshot.objects.select_for_update().get(pk=source.pk)
+                if source.votes_loaded:
+                    if source.loaded_markets != markets:
+                        raise ValueError('Active markets changed after the immutable daily snapshot')
+                    return
+                if VoteSnapshot.objects.filter(snapshot_time=at.date()).exists():
+                    raise ValueError('Existing daily vote rows cannot be mixed with contract attribution')
+                for market_key in markets:
+                    VotesLoader(market_key, at, source_snapshot=source).load_votes()
+                source.votes_loaded = True
+                source.loaded_markets = markets
+                source.save(update_fields=['votes_loaded', 'loaded_markets'])
+            return
+        if snapshot_time is None:
+            snapshot_time = timezone.now().replace(minute=0, second=0, microsecond=0)
+        task_make_claims_snapshot()
+        markets = AggregatedByAssetBribe.objects.filter(
+            start_at__lte=snapshot_time, stop_at__gt=snapshot_time,
+        ).values_list('market_key', flat=True).distinct()
+        for market_key in markets:
+            VotesLoader(market_key, snapshot_time).load_votes()
+    finally:
+        cache.set(LOAD_VOTES_TASK_ACTIVE_KEY, False, None)
 
 
 @celery_app.task(ignore_result=True, soft_time_limit=60 * 60 * 8, time_limit=60 * (60 * 8 + 5))

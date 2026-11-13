@@ -211,3 +211,11 @@ AMM_PROTOCOL_BRIBES_ADMIN_ADDRESS = env('AMM_PROTOCOL_BRIBES_ADMIN_ADDRESS')
 # so prod behaviour is unchanged.
 VOTING_TRACKER_URL = env('VOTING_TRACKER_URL', default='https://voting-tracker.aqua.network')
 MARKETKEYS_TRACKER_URL = env('MARKETKEYS_TRACKER_URL', default='https://marketkeys-tracker.aqua.network')
+
+
+# Contract attribution is opt-in; provision identities and the service token before enabling.
+CONTRACT_DELEGATION_SNAPSHOTS_ENABLED = env.bool('CONTRACT_DELEGATION_SNAPSHOTS_ENABLED', default=False)
+CONTRACT_DELEGATION_SNAPSHOT_URL = env('CONTRACT_DELEGATION_SNAPSHOT_URL', default='')
+CONTRACT_DELEGATION_SNAPSHOT_TOKEN = env('CONTRACT_DELEGATION_SNAPSHOT_TOKEN', default='')
+CONTRACT_DELEGATION_UPVOTE_PROXY = env('CONTRACT_DELEGATION_UPVOTE_PROXY', default='')
+CONTRACT_DELEGATION_LOCKER = env('CONTRACT_DELEGATION_LOCKER', default='')
