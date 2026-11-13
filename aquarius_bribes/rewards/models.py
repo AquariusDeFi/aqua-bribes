@@ -198,3 +198,13 @@ class AssetHolderBalanceSnapshot(models.Model):
         return '{0}..{1} at {2}: {3} {4}'.format(
             self.account[:8], self.account[-8:], self.created_at.date(), self.balance, self.asset.code,
         )
+
+
+class ContractDelegationSnapshot(models.Model):
+    """Retained source input and completion checkpoint for one daily attribution run."""
+    day = models.DateField(primary_key=True)
+    source_id = models.CharField(max_length=64, unique=True)
+    payload = models.JSONField()
+    votes_loaded = models.BooleanField(default=False)
+    loaded_markets = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
