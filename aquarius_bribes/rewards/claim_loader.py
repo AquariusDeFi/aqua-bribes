@@ -1,11 +1,10 @@
 from typing import Dict, List
 
-from django.conf import settings
 from django.utils import timezone
 
 from billiard.exceptions import SoftTimeLimitExceeded
 from stellar_sdk import Asset as SDKAsset
-from stellar_sdk import ClaimPredicate
+from stellar_sdk import ClaimPredicate, RequestsClient
 
 from aquarius_bribes.bribes.utils import get_horizon
 from aquarius_bribes.rewards.models import ClaimableBalance, Claimant
@@ -15,7 +14,8 @@ class ClaimLoader(object):
     def __init__(self, asset: SDKAsset, account: str = None):
         self.asset = asset
         self.account = account
-        self.horizon = get_horizon()
+        # Retry the current snapshot page across brief Horizon outages.
+        self.horizon = get_horizon(client=RequestsClient(num_retries=7, backoff_factor=1))
 
     def _get_page(self, page_limit: int = 200, cursor=None) -> List[Dict]:
         builder = self.horizon.claimable_balances()
